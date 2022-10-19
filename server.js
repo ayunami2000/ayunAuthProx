@@ -22,35 +22,42 @@ proxy.on("error", (err, req, res) => {
 	res.end("500 Internal Server Error");
 });
 
-const server = http.createServer((req, res) => {
-	if (!(function() {
-		const auth = req.headers.authorization;
-		if (auth) {
-			const pieces = auth.split(" ");
-			if (pieces.length != 2) return;
-			if (pieces[0] != "Basic") return;
-			const encoded = pieces[1];
-			let decoded = "";
-			try {
-				decoded = Buffer.from(encoded, "base64").toString();
-			} catch (e) {
-				return;
-			}
-			if (!decoded.includes(":")) return;
-			const givenUser = decoded.slice(0, decoded.indexOf(":"));
-			const givenPass = decoded.slice(decoded.indexOf(":") + 1);
-			if (givenUser != user || givenPass != pass) return;
-			proxy.web(req, res);
-			return true;
+function checkAuth(req) {
+	const auth = req.headers.authorization;
+	if (auth) {
+		const pieces = auth.split(" ");
+		if (pieces.length != 2) return;
+		if (pieces[0] != "Basic") return;
+		const encoded = pieces[1];
+		let decoded = "";
+		try {
+			decoded = Buffer.from(encoded, "base64").toString();
+		} catch (e) {
+			return;
 		}
-	})()) {
+		if (!decoded.includes(":")) return;
+		const givenUser = decoded.slice(0, decoded.indexOf(":"));
+		const givenPass = decoded.slice(decoded.indexOf(":") + 1);
+		if (givenUser != user || givenPass != pass) return;
+		return true;
+	}
+}
+
+const server = http.createServer((req, res) => {
+	if (checkAuth(req)) {
+		proxy.web(req, res);
+	} else {
 		res.writeHead(401, unauthHead);
 		res.end("401 Unauthorized");
 	}
 });
 
 server.on("upgrade", (req, socket, head) => {
-	proxy.ws(req, socket, head);
+	if (checkAuth(req)) {
+		proxy.ws(req, socket, head);
+	} else {
+		socket.end();
+	}
 });
 
 server.listen(port);
